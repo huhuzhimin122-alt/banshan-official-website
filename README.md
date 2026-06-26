@@ -20,3 +20,7 @@ npm run dev
 - `public/media/hidden-world-poster.jpg`：视频封面图
 
 没有素材时页面会自动使用代码生成的临时山体背景。
+
+## 预览
+
+GitHub Pages 启用后会自动部署预览站点。
