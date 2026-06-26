@@ -21,9 +21,9 @@ const App = {
           <a class="brand"><strong>伴山</strong><span>BANSHAN</span></a>
           <nav><a href="#local">本地向导</a><a href="#voice">AI语音向导</a><a href="#discover">城市探索</a></nav>
         </header>
-        <div class="hero-copy copy-a"><p>BANSHAN PORTAL</p><h1>穿过山门<br/>进入城市的另一面</h1><span>视频只在门洞里显示，不再漏到石门外面。</span></div>
-        <div class="hero-copy copy-b"><p>CAMERA FLY THROUGH</p><h2>镜头穿过门洞。</h2><span>滚动驱动相机向前，石门从两侧掠过。</span></div>
-        <div class="hero-copy copy-c"><p>HIDDEN WORLD</p><h2>进入云海世界。</h2><span>穿过之后，门洞世界扩展为完整画面。</span></div>
+        <div class="hero-copy copy-a"><p>BANSHAN PORTAL</p><h1>穿过山门<br/>进入城市的另一面</h1><span>视频只锁在门洞里，不再漏到石门外面。</span></div>
+        <div class="hero-copy copy-b"><p>CAMERA FLY THROUGH</p><h2>镜头穿过门洞。</h2><span>滚动驱动相机前进，石门从两侧掠过。</span></div>
+        <div class="hero-copy copy-c"><p>HIDDEN WORLD</p><h2>进入云海世界。</h2><span>穿过之后，门洞世界再扩展为完整画面。</span></div>
         <aside class="chapter"><i></i><b id="chapterNumber">01</b><em id="chapterName">GATEWAY</em></aside>
         <div class="scroll-hint"><i></i><span>SCROLL TO ENTER</span></div>
       </section>
@@ -53,7 +53,7 @@ const App = {
       </section>
     </main>
   `,
-  setup(){ onMounted(() => { initSmoothScroll(); initCleanHero(); initSections(); initDrag() }) }
+  setup(){ onMounted(() => { initSmoothScroll(); initHero(); initSections(); initDrag() }) }
 }
 
 createApp(App).mount('#app')
@@ -65,14 +65,14 @@ function initSmoothScroll(){
   gsap.ticker.lagSmoothing(0)
 }
 
-function initCleanHero(){
+function initHero(){
   const canvas = document.getElementById('heroCanvas')
   const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false, powerPreference:'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
+  renderer.toneMappingExposure = 0.92
 
   const scene = new THREE.Scene()
   scene.background = new THREE.Color(0x050505)
@@ -96,19 +96,17 @@ function initCleanHero(){
   videoTexture.minFilter = THREE.LinearFilter
   videoTexture.magFilter = THREE.LinearFilter
 
-  const portalMat = createMaskedVideoMaterial(videoTexture)
-  const portalPlane = new THREE.Mesh(new THREE.PlaneGeometry(18, 10.125), portalMat)
-  portalPlane.position.set(0, 0.08, -1.55)
+  const portalMat = createPortalMaterial(videoTexture)
+  const portalPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.05, 4.75), portalMat)
+  portalPlane.position.set(0.02, 0.02, -0.92)
   scene.add(portalPlane)
 
   const gate = new THREE.Group()
   gate.position.set(0, -0.38, 0)
   scene.add(gate)
-  const fallback = createFallbackGate(gate)
-  loadGate(gate, fallback)
+  loadGate(gate)
 
-  const lights = createSimpleLights()
-  scene.add(lights)
+  scene.add(createSimpleLights())
 
   const state = { p:0, chapter:'' }
   const target = new THREE.Vector3(0, 0, -4)
@@ -121,8 +119,8 @@ function initCleanHero(){
   })
 
   function apply(p){
-    const pass = smoothstep(.18, .55, p)
-    const reveal = smoothstep(.52, 1, p)
+    const pass = smoothstep(.20, .56, p)
+    const reveal = smoothstep(.66, 1, p)
 
     camera.position.z = lerp(7.8, -8.8, p)
     camera.position.x = lerp(0, .85, reveal)
@@ -138,16 +136,16 @@ function initCleanHero(){
     gate.rotation.y = THREE.MathUtils.degToRad(lerp(0, -12, pass))
     gate.traverse(n => {
       if(n.material){
-        n.material.opacity = 1 - smoothstep(.50, .70, p)
+        n.material.opacity = 1 - smoothstep(.54, .76, p)
         n.material.needsUpdate = true
       }
     })
 
-    portalPlane.position.z = lerp(-1.55, -18, reveal)
-    portalPlane.position.y = lerp(.08, -1.15, reveal)
-    portalPlane.scale.set(lerp(1, 5.8, reveal), lerp(1, 5.8, reveal), 1)
-    portalMat.uniforms.uProgress.value = reveal
-    portalMat.uniforms.uDark.value = lerp(.58, .96, reveal)
+    portalPlane.position.z = lerp(-0.92, -18, reveal)
+    portalPlane.position.y = lerp(0.02, -1.15, reveal)
+    portalPlane.scale.setScalar(lerp(1, 8.0, reveal))
+    portalMat.uniforms.uReveal.value = reveal
+    portalMat.uniforms.uDark.value = lerp(.64, 1.0, reveal)
 
     if(video.duration){
       const t = clamp((.035 + p * .70) * video.duration, .01, video.duration - .08)
@@ -172,76 +170,48 @@ function initCleanHero(){
   })
 }
 
-function createMaskedVideoMaterial(texture){
+function createPortalMaterial(texture){
   return new THREE.ShaderMaterial({
     transparent:true,
     depthWrite:false,
     side:THREE.DoubleSide,
-    uniforms:{
-      uMap:{ value:texture },
-      uProgress:{ value:0 },
-      uDark:{ value:.58 }
-    },
-    vertexShader:`
-      varying vec2 vUv;
-      void main(){
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
+    uniforms:{ uMap:{ value:texture }, uReveal:{ value:0 }, uDark:{ value:.64 } },
+    vertexShader:`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
     fragmentShader:`
       uniform sampler2D uMap;
-      uniform float uProgress;
+      uniform float uReveal;
       uniform float uDark;
       varying vec2 vUv;
-
-      float roundedRect(vec2 p, vec2 b, float r){
-        vec2 q = abs(p) - b + r;
-        return length(max(q,0.0)) + min(max(q.x,q.y),0.0) - r;
+      float archMask(vec2 p){
+        float rect = 1.0 - smoothstep(0.0,0.018,max(abs(p.x)-0.30, abs(p.y+0.08)-0.36));
+        float arch = 1.0 - smoothstep(0.0,0.018,length((p-vec2(0.0,0.24))/vec2(0.30,0.24))-1.0);
+        float m = max(rect, arch);
+        float feather = smoothstep(0.0,0.26,0.5-abs(p.x)) * smoothstep(0.0,0.22,0.50-abs(p.y));
+        return m * feather;
       }
-
       void main(){
         vec2 p = vUv - vec2(0.5);
-        float body = 1.0 - smoothstep(0.0, 0.025, roundedRect(p + vec2(0.0,-0.035), vec2(0.118,0.265), 0.065));
-        float arch = 1.0 - smoothstep(0.0, 0.025, length((p - vec2(0.0,0.145)) / vec2(0.118,0.108)) - 1.0);
-        float holeMask = max(body, arch);
-        float fullMask = 1.0;
-        float mask = mix(holeMask, fullMask, smoothstep(0.10, 0.82, uProgress));
-
-        vec2 videoUv = vec2(vUv.x, 1.0 - vUv.y);
-        vec4 color = texture2D(uMap, videoUv);
+        vec4 color = texture2D(uMap, vUv);
         color.rgb *= uDark;
-        gl_FragColor = vec4(color.rgb, mask);
+        float m = mix(archMask(p), 1.0, smoothstep(0.15,1.0,uReveal));
+        gl_FragColor = vec4(color.rgb, m);
       }
     `
   })
 }
 
-function loadGate(group, fallback){
+function loadGate(group){
   const draco = new DRACOLoader()
   draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/')
   const loader = new GLTFLoader()
   loader.setDRACOLoader(draco)
   loader.load(MODEL_URL, gltf => {
-    group.remove(fallback)
     const model = gltf.scene
     normalize(model, 6.05)
     model.position.set(0, 0, 0)
     model.traverse(n => { if(n.isMesh){ n.frustumCulled = false; n.material = rockMaterial(n.material) } })
     group.add(model)
   })
-}
-
-function createFallbackGate(group){
-  const g = new THREE.Group()
-  const mat = rockMaterial()
-  ;[[.72,3.6,.8,-1.25,0,0],[.72,3.6,.8,1.25,0,0],[3.1,.66,.8,0,1.55,0]].forEach(a => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(a[0],a[1],a[2]), mat.clone())
-    m.position.set(a[3],a[4],a[5])
-    g.add(m)
-  })
-  group.add(g)
-  return g
 }
 
 function createSimpleLights(){
