@@ -1,6 +1,7 @@
 import { createApp, onMounted } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import Lenis from 'lenis'
@@ -8,21 +9,16 @@ import './styles.css'
 
 gsap.registerPlugin(ScrollTrigger)
 
+const MODEL_URL = 'models/stonegate_web_light_draco.glb'
+const WORLD_VIDEO_URL = 'media/portal-world.mp4'
+const WORLD_POSTER_URL = 'media/portal-world-poster.jpg'
+
 const App = {
   template: `
     <main class="site-shell">
       <section class="hero-sequence" id="hero">
         <div class="outside-reality" aria-hidden="true"></div>
-        <div class="hidden-world" id="hiddenWorld">
-          <video id="worldVideo" class="world-video" muted playsinline preload="auto" poster="media/hidden-world-poster.jpg">
-            <source src="media/hidden-world.mp4" type="video/mp4" />
-          </video>
-          <div class="world-fallback" aria-hidden="true">
-            <span class="sun-core"></span>
-            <span class="cloud cloud-a"></span><span class="cloud cloud-b"></span><span class="cloud cloud-c"></span>
-            <span class="peak peak-a"></span><span class="peak peak-b"></span><span class="peak peak-c"></span><span class="peak peak-d"></span><span class="peak peak-e"></span>
-          </div>
-        </div>
+        <video id="worldVideo" class="world-video-source" muted playsinline preload="auto" crossorigin="anonymous"></video>
         <canvas id="portalCanvas" class="portal-canvas"></canvas>
         <div class="portal-light"></div>
         <div class="cinema-grade"></div>
@@ -33,9 +29,9 @@ const App = {
           <nav><a href="#local">本地向导</a><a href="#voice">AI语音向导</a><a href="#discover">城市探索</a></nav>
         </header>
 
-        <div class="hero-copy copy-a"><p class="eyebrow">BANSHAN WORLD</p><h1>进入城市的<br/>另一面</h1><p>门外是现实入口，门内才是张家界云海世界。滚动时相机穿过山门，而不是放大一张背景图。</p></div>
-        <div class="hero-copy copy-b"><p class="eyebrow">CAMERA FLY THROUGH</p><h2>穿过山门，世界打开。</h2><p>石门作为前景 Portal 从镜头两侧掠过，隐藏世界逐渐占满整个屏幕。</p></div>
-        <div class="hero-copy copy-c"><p class="eyebrow">HIDDEN WORLD REVEAL</p><h2>云海成为主视觉。</h2><p>进入之后镜头继续平移，并慢慢向下俯瞰张家界峰林。</p></div>
+        <div class="hero-copy copy-a"><p class="eyebrow">BANSHAN WORLD</p><h1>穿过山门<br/>进入城市的另一面</h1><p>门外是现实入口，门内才是张家界云海世界。滚动时相机穿过山门，视频作为 WebGL 世界纹理参与交互，不是直接铺一个视频。</p></div>
+        <div class="hero-copy copy-b"><p class="eyebrow">CAMERA FLY THROUGH</p><h2>门内的世界开始扩大。</h2><p>石门模型保持在前景，门洞里的风景作为空间平面被滚动放大、拉近、俯视。</p></div>
+        <div class="hero-copy copy-c"><p class="eyebrow">HIDDEN WORLD REVEAL</p><h2>云海变成完整场景。</h2><p>穿过之后，石门从镜头两侧退场，张家界云海世界扩展到全屏。</p></div>
         <aside class="chapter-indicator"><span></span><b id="chapterNumber">01</b><em id="chapterName">PORTAL</em></aside>
         <div class="scroll-hint"><i></i><span>SCROLL TO ENTER</span></div>
       </section>
@@ -95,8 +91,8 @@ function initPortalHero() {
   const chapterName = document.getElementById('chapterName')
 
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 1000)
-  camera.position.set(0, 0.05, 7.6)
+  const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 1200)
+  camera.position.set(0, 0.08, 7.4)
 
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -105,59 +101,72 @@ function initPortalHero() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.08
 
+  const worldPlane = createInteractiveWorldPlane(video)
+  worldPlane.position.set(0.7, 0.16, -3.2)
+  scene.add(worldPlane)
+
   const portalGroup = new THREE.Group()
-  portalGroup.position.set(0.75, -0.1, 0)
+  portalGroup.position.set(0.75, -0.06, 0)
   scene.add(portalGroup)
 
-  const fallbackPortal = createRockPortal(portalGroup)
+  const fallbackPortal = createFallbackPortal(portalGroup)
   loadStoneGateModel(portalGroup, fallbackPortal)
   scene.add(createLightRig())
-
-  const dust = createDustField()
-  scene.add(dust)
+  const atmosphere = createAtmosphere()
+  scene.add(atmosphere)
 
   setupVideo(video)
+
   const state = { p: 0, lastChapter: '' }
-  const lookTarget = new THREE.Vector3(0.25, 0.02, -7)
+  const lookTarget = new THREE.Vector3(0.18, 0.05, -7)
   const clock = new THREE.Clock()
 
   gsap.to(state, {
     p: 1,
     ease: 'none',
-    scrollTrigger: { trigger: '.hero-sequence', start: 'top top', end: 'bottom bottom', scrub: 1.2 },
+    scrollTrigger: { trigger: '.hero-sequence', start: 'top top', end: 'bottom bottom', scrub: 1.15 },
     onUpdate: () => applyHeroProgress(state.p)
   })
 
   function applyHeroProgress(p) {
-    const approach = smoothstep(0.04, 0.36, p)
+    const approach = smoothstep(0.04, 0.38, p)
     const pass = smoothstep(0.34, 0.66, p)
-    const reveal = smoothstep(0.58, 1, p)
+    const reveal = smoothstep(0.56, 1, p)
+    const worldExpand = smoothstep(0.26, 0.84, p)
 
-    camera.position.z = lerp(7.6, 1.35, approach)
-    camera.position.y = lerp(0.05, 0.36, reveal)
-    camera.position.x = lerp(0, 0.18, reveal)
-    camera.fov = lerp(38, 45, reveal)
-    camera.rotation.x = THREE.MathUtils.degToRad(lerp(0, -13, reveal))
+    camera.position.z = lerp(7.4, 1.22, approach)
+    camera.position.y = lerp(0.08, 0.46, reveal)
+    camera.position.x = lerp(0, 0.22, reveal)
+    camera.fov = lerp(38, 46, reveal)
+    camera.rotation.x = THREE.MathUtils.degToRad(lerp(0, -14, reveal))
     camera.updateProjectionMatrix()
 
-    portalGroup.position.z = lerp(0, 2.8, approach)
-    portalGroup.position.x = lerp(0.75, 0.28, approach)
-    portalGroup.scale.setScalar(lerp(1, 2.55, approach))
-    portalGroup.rotation.y = THREE.MathUtils.degToRad(lerp(-1.5, -6, pass))
+    portalGroup.position.z = lerp(0, 3.05, approach)
+    portalGroup.position.x = lerp(0.75, 0.2, approach)
+    portalGroup.scale.setScalar(lerp(1, 2.72, approach))
+    portalGroup.rotation.y = THREE.MathUtils.degToRad(lerp(-1.2, -7.5, pass))
     portalGroup.traverse((node) => {
       if (node.material) {
-        node.material.opacity = 1 - smoothstep(0.58, 0.78, p)
+        node.material.opacity = 1 - smoothstep(0.60, 0.80, p)
         node.material.needsUpdate = true
       }
     })
 
-    const hole = smoothstep(0.42, 0.84, p)
+    worldPlane.position.z = lerp(-3.2, -2.05, approach)
+    worldPlane.position.x = lerp(0.72, 0.08, worldExpand)
+    worldPlane.position.y = lerp(0.14, 0.36, reveal)
+    worldPlane.scale.set(lerp(0.72, 7.2, worldExpand), lerp(1.08, 4.2, worldExpand), 1)
+    worldPlane.rotation.x = THREE.MathUtils.degToRad(lerp(0, -7, reveal))
+    worldPlane.material.opacity = lerp(0.72, 1, worldExpand)
+    worldPlane.material.uniforms.uProgress.value = p
+    worldPlane.material.uniforms.uTime.value = clock.getElapsedTime()
+
+    atmosphere.children.forEach((m, i) => {
+      m.material.opacity = (0.05 + i * 0.012) * (1 - smoothstep(0.82, 1, p))
+      m.position.z = lerp(-2.8, 0.6, approach) - i * 0.08
+    })
+
     document.documentElement.style.setProperty('--hero-progress', p.toFixed(3))
-    document.documentElement.style.setProperty('--portal-w', `${lerp(10, 145, hole).toFixed(2)}vw`)
-    document.documentElement.style.setProperty('--portal-h', `${lerp(34, 145, hole).toFixed(2)}vh`)
-    document.documentElement.style.setProperty('--world-scale', lerp(1.28, 1.05, p).toFixed(3))
-    document.documentElement.style.setProperty('--world-y', `${lerp(0, -5, reveal).toFixed(2)}vh`)
-    document.documentElement.style.setProperty('--world-tilt', `${lerp(0, 8, reveal).toFixed(2)}deg`)
     document.documentElement.style.setProperty('--outside-fade', (1 - smoothstep(0.48, 0.72, p)).toFixed(3))
     document.documentElement.style.setProperty('--portal-cx', `${lerp(58, 50, reveal).toFixed(2)}%`)
 
@@ -167,10 +176,11 @@ function initPortalHero() {
 
   function animate() {
     const t = clock.getElapsedTime()
+    worldPlane.material.uniforms.uTime.value = t
     portalGroup.rotation.z = Math.sin(t * 0.35) * 0.002
-    dust.children.forEach((m, i) => {
-      m.position.y += Math.sin(t * 0.5 + i) * 0.0008
-      m.material.opacity = 0.05 + Math.sin(t + i) * 0.015
+    atmosphere.children.forEach((m, i) => {
+      m.position.x = Math.sin(t * 0.18 + i) * 0.2
+      m.position.y += Math.sin(t * 0.25 + i) * 0.0007
     })
     camera.lookAt(lookTarget)
     renderer.render(scene, camera)
@@ -185,19 +195,86 @@ function initPortalHero() {
   })
 }
 
-function createRockPortal(group) {
+function createInteractiveWorldPlane(video) {
+  const texture = new THREE.VideoTexture(video)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+
+  const poster = new THREE.TextureLoader().load(WORLD_POSTER_URL)
+  poster.colorSpace = THREE.SRGBColorSpace
+
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uVideo: { value: texture },
+      uPoster: { value: poster },
+      uProgress: { value: 0 },
+      uTime: { value: 0 }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      uniform float uProgress;
+      uniform float uTime;
+      void main(){
+        vUv = uv;
+        vec3 p = position;
+        float wave = sin((uv.x * 7.0 + uTime * 0.45)) * 0.025 + sin((uv.y * 5.0 - uTime * 0.28)) * 0.018;
+        p.z += wave * smoothstep(0.08, 1.0, uProgress);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform sampler2D uVideo;
+      uniform sampler2D uPoster;
+      uniform float uProgress;
+      uniform float uTime;
+      void main(){
+        vec2 uv = vUv;
+        uv.x += sin(uv.y * 9.0 + uTime * 0.22) * 0.006 * smoothstep(0.1, 1.0, uProgress);
+        vec4 videoColor = texture2D(uVideo, uv);
+        vec4 posterColor = texture2D(uPoster, uv);
+        vec4 color = mix(posterColor, videoColor, smoothstep(0.04, 0.2, uProgress));
+        float vignette = smoothstep(0.9, 0.22, distance(vUv, vec2(0.5)));
+        float glow = smoothstep(0.3, 0.0, distance(vUv, vec2(0.54, 0.42))) * 0.22;
+        color.rgb = color.rgb * (0.72 + vignette * 0.48) + vec3(1.0, 0.55, 0.18) * glow;
+        gl_FragColor = vec4(color.rgb, color.a);
+      }
+    `
+  })
+
+  return new THREE.Mesh(new THREE.PlaneGeometry(2.2, 3.0, 40, 40), material)
+}
+
+function loadStoneGateModel(group, fallbackPortal) {
+  const draco = new DRACOLoader()
+  draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/')
+  const loader = new GLTFLoader()
+  loader.setDRACOLoader(draco)
+  loader.load(MODEL_URL, (gltf) => {
+    group.remove(fallbackPortal)
+    const model = gltf.scene
+    normalizeModel(model, 4.65)
+    model.position.set(0, -0.18, 0)
+    model.traverse((node) => {
+      if (!node.isMesh) return
+      node.frustumCulled = false
+      node.material = createRockMaterial(node.material)
+    })
+    group.add(model)
+  }, undefined, () => {})
+}
+
+function createFallbackPortal(group) {
   const portal = new THREE.Group()
   const mat = new THREE.MeshStandardMaterial({ color: 0x3d3a31, roughness: 0.96, metalness: 0, transparent: true, opacity: 1 })
   const geo = new THREE.DodecahedronGeometry(0.32, 1)
-
   const points = []
-  for (let i = 0; i < 38; i++) {
-    const a = Math.PI - (i / 37) * Math.PI
-    points.push([Math.cos(a) * 1.55, Math.sin(a) * 1.35 + 0.78, 0])
-  }
+  for (let i = 0; i < 38; i++) { const a = Math.PI - (i / 37) * Math.PI; points.push([Math.cos(a) * 1.55, Math.sin(a) * 1.35 + 0.78, 0]) }
   for (let i = 0; i < 28; i++) points.push([-1.55, 0.75 - i * 0.12, 0])
   for (let i = 0; i < 28; i++) points.push([1.55, 0.75 - i * 0.12, 0])
-
   points.forEach(([x, y, z], i) => {
     const mesh = new THREE.Mesh(geo, mat.clone())
     const noise = Math.sin(i * 13.17) * 0.14
@@ -207,42 +284,9 @@ function createRockPortal(group) {
     mesh.rotation.set(i * 0.23, i * 0.41, i * 0.17)
     portal.add(mesh)
   })
-
-  const leftWall = createSideWall(-1.9, mat)
-  const rightWall = createSideWall(1.9, mat)
-  portal.add(leftWall, rightWall)
   portal.position.y = -0.28
   group.add(portal)
   return portal
-}
-
-function createSideWall(x, material) {
-  const wall = new THREE.Group()
-  const geo = new THREE.DodecahedronGeometry(0.38, 1)
-  for (let i = 0; i < 20; i++) {
-    const mesh = new THREE.Mesh(geo, material.clone())
-    mesh.position.set(x + Math.sin(i) * 0.18, -1.35 + i * 0.17, -0.1 + Math.cos(i * 2.1) * 0.16)
-    mesh.scale.set(1.1 + Math.sin(i) * 0.2, 1.35, 0.95)
-    mesh.rotation.set(i * 0.2, i * 0.31, i * 0.13)
-    wall.add(mesh)
-  }
-  return wall
-}
-
-function loadStoneGateModel(group, fallbackPortal) {
-  const loader = new GLTFLoader()
-  loader.load('models/stonegate.glb', (gltf) => {
-    group.remove(fallbackPortal)
-    const model = gltf.scene
-    normalizeModel(model, 4.45)
-    model.position.set(0, -0.18, 0)
-    model.traverse((node) => {
-      if (!node.isMesh) return
-      node.frustumCulled = false
-      node.material = createRockMaterial(node.material)
-    })
-    group.add(model)
-  }, undefined, () => {})
 }
 
 function normalizeModel(model, targetSize) {
@@ -261,28 +305,31 @@ function createRockMaterial(source) {
 
 function createLightRig() {
   const rig = new THREE.Group()
-  rig.add(new THREE.HemisphereLight(0xffe7c7, 0x080c0a, 0.9))
+  rig.add(new THREE.HemisphereLight(0xffe7c7, 0x080c0a, 0.88))
   const back = new THREE.DirectionalLight(0xffb36b, 5.8); back.position.set(0.6, 2.6, -4.8); rig.add(back)
-  const rim = new THREE.DirectionalLight(0xff8e3d, 3.8); rim.position.set(-2.2, 1.2, -1.8); rig.add(rim)
+  const rim = new THREE.DirectionalLight(0xff8e3d, 3.6); rim.position.set(-2.2, 1.2, -1.8); rig.add(rim)
   const fill = new THREE.DirectionalLight(0x6c86a6, 0.35); fill.position.set(3, 1.6, 4); rig.add(fill)
   return rig
 }
 
-function createDustField() {
+function createAtmosphere() {
   const group = new THREE.Group()
-  const mat = new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.04, depthWrite: false })
-  const geo = new THREE.PlaneGeometry(1.6, 0.38)
-  for (let i = 0; i < 10; i++) {
-    const m = new THREE.Mesh(geo, mat.clone())
-    m.position.set(0.55 + Math.sin(i) * 1.3, -1.2 + i * 0.16, -2.5 - i * 0.1)
-    m.rotation.z = (i % 2 ? 1 : -1) * 0.12
-    group.add(m)
+  for (let i = 0; i < 9; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffc27a, transparent: true, opacity: 0.05 + i * 0.012, depthWrite: false, blending: THREE.AdditiveBlending })
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.8 + i * 0.36, 0.48 + i * 0.08), mat)
+    mesh.position.set(0.55 + Math.sin(i) * 1.1, -1.15 + i * 0.13, -2.7 - i * 0.09)
+    mesh.rotation.z = (i % 2 ? 1 : -1) * 0.11
+    group.add(mesh)
   }
   return group
 }
 
 function setupVideo(video) {
   if (!video) return
+  video.src = WORLD_VIDEO_URL
+  video.loop = true
+  video.muted = true
+  video.playsInline = true
   video.pause()
   video.addEventListener('loadedmetadata', () => { video.currentTime = 0.01 }, { once: true })
 }
@@ -300,10 +347,7 @@ function updateChapters(p, number, name, state) {
   if (!number || !name || state.lastChapter === next) return
   state.lastChapter = next
   const [n, label] = next.split('|')
-  gsap.to([number, name], { y: -8, opacity: 0, duration: 0.16, onComplete: () => {
-    number.textContent = n; name.textContent = label
-    gsap.fromTo([number, name], { y: 8, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, stagger: 0.04 })
-  } })
+  gsap.to([number, name], { y: -8, opacity: 0, duration: 0.16, onComplete: () => { number.textContent = n; name.textContent = label; gsap.fromTo([number, name], { y: 8, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, stagger: 0.04 }) } })
 }
 
 function initContentReveal() {
@@ -317,11 +361,7 @@ function initLayeredCopy() {
   if (!steps.length) return
   gsap.set(steps.slice(1), { opacity: 0, y: 34, filter: 'blur(18px)' })
   const tl = gsap.timeline({ scrollTrigger: { trigger: '.layered-copy', start: 'top top', end: '+=220%', scrub: 1, pin: true } })
-  steps.forEach((step, index) => {
-    if (index === 0) return
-    tl.to(steps[index - 1], { opacity: 0, y: -34, filter: 'blur(18px)', duration: 0.45 }, index - 0.15)
-    tl.to(step, { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.55 }, index)
-  })
+  steps.forEach((step, index) => { if (index === 0) return; tl.to(steps[index - 1], { opacity: 0, y: -34, filter: 'blur(18px)', duration: 0.45 }, index - 0.15); tl.to(step, { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.55 }, index) })
 }
 
 function initDragCards() {
