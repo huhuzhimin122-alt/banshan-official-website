@@ -5,7 +5,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import Lenis from 'lenis'
-import './styles-clean.css'
+import './foo.css'
 
 gsap.registerPlugin(ScrollTrigger)
 const MODEL_URL='models/stonegate_web_light_draco.glb'
